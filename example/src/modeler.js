@@ -8,8 +8,9 @@ import AddExporter from '@bpmn-io/add-exporter';
 
 import {
   BpmnPropertiesPanelModule,
-  BpmnPropertiesProviderModule
-} from 'bpmn-js-properties-panel';
+  BpmnPropertiesProviderModule,
+  CamundaPlatformPropertiesProviderModule,
+} from "bpmn-js-properties-panel";
 
 import fileDrop from 'file-drops';
 
@@ -18,6 +19,14 @@ import fileOpen from 'file-open';
 import download from 'downloadjs';
 
 import exampleXML from '../resources/example.bpmn';
+
+import SimulationSupportModule from "../../lib/simulation-support";
+
+import xmlFormat from "xml-formatter";
+import Notify from "simple-notify";
+import hljs from "highlight.js/lib/core";
+import xml from "highlight.js/lib/languages/xml";
+hljs.registerLanguage("xml", xml);
 
 const url = new URL(window.location.href);
 
@@ -93,7 +102,9 @@ const modeler = new BpmnModeler({
   additionalModules: [
     BpmnPropertiesPanelModule,
     BpmnPropertiesProviderModule,
+    CamundaPlatformPropertiesProviderModule,
     TokenSimulationModule,
+    SimulationSupportModule,
     AddExporter,
     ExampleModule
   ],
@@ -109,8 +120,10 @@ const modeler = new BpmnModeler({
   }
 });
 
-function openDiagram(diagram) {
-  return modeler.importXML(diagram)
+
+async function openDiagram(diagram) {
+  return await modeler
+    .importXML(diagram)
     .then(({ warnings }) => {
       if (warnings.length) {
         console.warn(warnings);
@@ -131,8 +144,7 @@ if (presentationMode) {
   document.body.classList.add('presentation-mode');
 }
 
-function openFile(files) {
-
+async function openFile(files) {
   // files = [ { name, contents }, ... ]
 
   if (!files.length) {
@@ -143,7 +155,7 @@ function openFile(files) {
 
   fileName = files[0].name;
 
-  openDiagram(files[0].contents);
+  await openDiagram(files[0].contents);
 }
 
 document.body.addEventListener('dragover', fileDrop('Open BPMN diagram', openFile), false);
@@ -170,9 +182,72 @@ document.body.addEventListener('keydown', function(event) {
   }
 });
 
-document.querySelector('#download-button').addEventListener('click', function(event) {
-  downloadDiagram();
+
+function fitView() {
+  modeler.get("canvas").zoom("fit-viewport");
+}
+
+document.querySelector("#fit-view").addEventListener("click", function (event) {
+  fitView();
 });
+
+function showDiagram() {
+  modeler.saveXML({ format: true }, function (err, xml) {
+    if (!err) {
+      document.querySelector(".modal-body #diagram-text").value =
+        xmlFormat(xml);
+      // hljs.highlightElement(document.querySelector('.modal-body #diagram-text'));
+    }
+  });
+}
+
+function copyToClipboard() {
+  /* Get the text field */
+  let textArea = document.getElementById("diagram-text");
+
+  /* Select the text field */
+  textArea.select();
+
+  /* Copy the text inside the text field */
+  navigator.clipboard.writeText(textArea.value);
+
+  console.log(textArea.value);
+}
+
+document
+  .querySelector("#show-diagram-button")
+  .addEventListener("click", function (event) {
+    showDiagram();
+  });
+
+document
+  .querySelector("#copy-diagram-button")
+  .addEventListener("click", function (event) {
+    copyToClipboard();
+    new Notify({
+      status: "success",
+      title: "Notify Title",
+      text: "Notify text lorem ipsum111",
+      effect: "fade",
+      speed: 300,
+      customClass: "",
+      customIcon: "",
+      showIcon: true,
+      showCloseButton: false,
+      autoclose: true,
+      autotimeout: 2000,
+      gap: 20,
+      distance: 20,
+      type: 1,
+      position: "right bottom",
+    });
+  });
+
+document
+  .querySelector("#download-diagram-button")
+  .addEventListener("click", function (event) {
+    downloadDiagram();
+  });
 
 
 const propertiesPanel = document.querySelector('#properties-panel');
@@ -245,7 +320,161 @@ if (remoteDiagram) {
     }
   );
 } else {
-  openDiagram(initialDiagram);
+  await openDiagram(initialDiagram);
 }
 
+// open property panel if url contains "pp"
 toggleProperties(url.searchParams.has('pp'));
+
+// add clock to canvas
+function addClock(date) {
+  const node = document.createElement("div");
+  node.innerHTML =
+    '<div title="Clock" id="clockDisplay" class="bts-animation-speed-button " style="width: 150px;"><span class="bts-icon " style="width:150px;">01/01 00:00:00</span></div>';
+  document.querySelector(".bts-set-animation-speed").appendChild(node);
+}
+function setTime(date) {
+  setTimeout(date.setSeconds(date.getSeconds() + 1111), 1000);
+  showTime(date);
+}
+function showTime(date) {
+  console.log(date.getMonth());
+  var mm = date.getMonth() + 1;
+  var dd = date.getDate();
+  var h = date.getHours(); // 0 - 23
+  var m = date.getMinutes(); // 0 - 59
+  var s = date.getSeconds(); // 0 - 59
+  mm = mm < 10 ? "0" + mm : mm;
+  dd = dd < 10 ? "0" + dd : dd;
+  h = h < 10 ? "0" + h : h;
+  m = m < 10 ? "0" + m : m;
+  s = s < 10 ? "0" + s : s;
+  var time = mm + "/" + dd + " " + h + ":" + m + ":" + s;
+  console.log(time);
+  document.querySelector("#clockDisplay>span").innerText = time;
+}
+
+addClock();
+
+const elementRegistry = modeler.get("elementRegistry");
+const simulationSupport = modeler.get("simulationSupport");
+const simulator = modeler.get("simulator");
+
+//
+// Demo
+//
+// enable simulation
+simulationSupport.toggleSimulation(true);
+
+// change simulation date
+var date = new Date("2000-01-01 00:00:00");
+showTime(date);
+setTimeout(setTime, 1000, date);
+
+// pause all tasks for simulation
+var elements = elementRegistry.filter(function (element) {
+  return element.type == "bpmn:Task" || element.type == "bpmn:UserTask";
+});
+elements.forEach((element) => {
+  console.log(element);
+  simulationSupport.triggerElement(element.id);
+});
+
+// trigger start elements
+// var startElements = elementRegistry.filter(function (element) {
+//   return element.type == "bpmn:StartEvent";
+// });
+
+function trigger(id) {
+  simulationSupport.triggerElement(id);
+}
+
+
+// First we need a promisified setTimeout:
+function delay (ms) {
+    return new Promise((resolve,reject) => setTimeout(resolve,ms));
+}
+
+
+const gatewaySettings = modeler.get("exclusiveGatewaySettings");
+var gateway;
+var flow;
+await delay(1000);
+trigger("StartEvent_0offpno");
+
+await delay(1000);
+trigger("StartEvent_0offpno");
+
+await delay(1000);
+trigger("StartEvent_0offpno");
+
+await delay(1000);
+trigger("StartEvent_0offpno");
+
+await delay(1000);
+trigger("StartEvent_0offpno");
+
+await delay(1000);
+trigger("StartEvent_0offpno");
+
+await delay(1000);
+trigger("Task_026c0id");
+
+await delay(1000);
+trigger("Task_026c0id");
+
+await delay(1000);
+trigger("Task_026c0id");
+
+await delay(1000);
+trigger("Task_0po6mda");
+
+await delay(1000);
+trigger("Task_026c0id");
+
+await delay(1000);
+gateway = elementRegistry.get("ExclusiveGateway_13kuced");
+flow = elementRegistry.get("SequenceFlow_091wldx");
+gatewaySettings.setSequenceFlow(gateway, flow);
+
+await delay(1000);
+trigger("Task_0po6mda");
+
+await delay(1000);
+trigger("Task_026c0id");
+
+await delay(1000);
+gateway = elementRegistry.get("ExclusiveGateway_13kuced");
+flow = elementRegistry.get("SequenceFlow_1qdqk69");
+gatewaySettings.setSequenceFlow(gateway, flow);
+
+await delay(1000);
+trigger("Task_0po6mda");
+
+await delay(1000);
+gateway = elementRegistry.get("ExclusiveGateway_13kuced");
+flow = elementRegistry.get("SequenceFlow_091wldx");
+gatewaySettings.setSequenceFlow(gateway, flow);
+
+await delay(1000);
+trigger("Task_026c0id");
+
+await delay(1000);
+trigger("Task_0po6mda");
+
+await delay(1000);
+gateway = elementRegistry.get("ExclusiveGateway_13kuced");
+flow = elementRegistry.get("SequenceFlow_1qdqk69");
+gatewaySettings.setSequenceFlow(gateway, flow);
+
+await delay(1000);
+trigger("Task_0po6mda");
+
+trigger("Task_0p47z7h");
+
+await delay(1000);
+trigger("Task_0po6mda");
+
+console.log(
+  simulator.getConfig(elementRegistry.get("ExclusiveGateway_13kuced"))
+);
